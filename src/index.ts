@@ -1,28 +1,42 @@
-import {Command, flags} from '@oclif/command'
+import { Command, flags } from '@oclif/command'
+import * as puppeteer from 'puppeteer';
+import { watch } from 'fs';
+const timeOut = (delay: number) => new Promise(resolve => setTimeout(resolve, delay));
 
 class HotBrowseCli extends Command {
   static description = 'describe the command here'
 
   static flags = {
-    // add --version flag to show CLI version
-    version: flags.version({char: 'v'}),
-    help: flags.help({char: 'h'}),
-    // flag with a value (-n, --name=VALUE)
-    name: flags.string({char: 'n', description: 'name to print'}),
-    // flag with no value (-f, --force)
-    force: flags.boolean({char: 'f'}),
-  }
+    version: flags.version({ char: 'v' }),
+    help: flags.help({ char: 'h' }),
+    url: flags.string({ required: true, char: 'u', description: 'URL for browse' }),
+    watch: flags.string({ required: true, char: 'w', description: 'watching Directory or File for Hot Module Reload' }),
+  } 
 
-  static args = [{name: 'file'}]
-
+  static args = [{ name: 'file' }]
+   
   async run() {
-    const {args, flags} = this.parse(HotBrowseCli)
-
-    const name = flags.name || 'world'
-    this.log(`hello ${name} from .\\src\\index.ts`)
-    if (args.file && flags.force) {
-      this.log(`you input --force and --file: ${args.file}`)
-    }
+    const { args, flags } = this.parse(HotBrowseCli)
+    const browser = await puppeteer.launch({ headless: false });
+    const page = await browser.newPage();
+    await page.setBypassCSP(false);
+    await page.setCacheEnabled(false);
+    await page.goto(flags.url || '');
+    const watcher = watch(flags.watch || '', { persistent: true, recursive: true });
+    watcher.addListener('change', async () => {
+      const sessionData = await page.evaluate(function () {
+        const { captureSessionData } = window as any;
+        return captureSessionData instanceof Function && captureSessionData();
+      });
+      await timeOut(500);
+      await page.reload();
+      await page.evaluate(function (sessionData) {
+        const { loadCaptureSessionData } = window as any;
+        if (loadCaptureSessionData instanceof Function)
+          loadCaptureSessionData(sessionData);
+      }, sessionData);
+    });
+  
   }
 }
 
